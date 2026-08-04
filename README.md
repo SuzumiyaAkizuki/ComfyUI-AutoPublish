@@ -8,14 +8,29 @@
 ## 功能概览
 
 - 监听 ComfyUI 图片输出事件，并在悬浮发布托盘中展示最近 20 张结果。
+
+  ![折叠托盘](https://akizukipic.oss-cn-beijing.aliyuncs.com/img/202608042337130.png)
+
+  ![展开界面](https://akizukipic.oss-cn-beijing.aliyuncs.com/img/202608042337213.png)
+
 - 支持 `Save Image`、`Preview Image`、`ImageCompressor` 及其他图片输出节点。
+
 - 可指定只显示某一个节点的结果，适合包含多个预览、保存和压缩节点的工作流。
+
+  ![选择输出节点](https://akizukipic.oss-cn-beijing.aliyuncs.com/img/202608042339898.png)
+
 - 托盘可拖拽、收起，位置和节点筛选保存在当前浏览器中。
+
 - 每张图片可独立执行 `上传 OSS`、`发布 X`，无需等待生成任务全部结束。
+
 - OSS 上传成功后生成 HTTPS URL，并提供 `复制 URL`。
+
 - X 发布前可编辑正文，也可以只发布图片；成功后可直接打开帖子。
+
 - OSS 与 X 均使用后台任务和状态轮询，失败时在对应图片卡片显示原因并允许重试。
+
 - 只允许读取 ComfyUI `input`、`output`、`temp` 目录内的图片。
+
 - “清空卡片”只清理浏览器中的卡片，不会删除任何本地图片。
 
 ## 环境要求
@@ -173,7 +188,7 @@ ComfyUI/user/__autopublish/oss.json
 ## X 设置
 
 > [!CAUTION]
-> **X API 需要付费 credits。** 当前 X API 采用按量付费，不是免费的发帖接口。余额为 0 时会返回 `credits depleted`，插件无法绕过。根据 X 官方在 2026 年 8 月公布的价格，普通 `Post: Create` 为 **$0.015/次**，正文包含 URL 的 `Post: Create (with URL)` 为 **$0.200/次**，授权后读取账号资料 `User: Read` 为 **$0.010/次**。媒体及其他端点可能产生额外费用，价格可能随时调整，请始终以 [X API Pricing](https://docs.x.com/x-api/getting-started/pricing) 和 [Developer Console](https://console.x.com) 为准。
+> **X API 需要付费。** 当前 X API 采用按量付费，不是免费的发帖接口。余额为 0 时会返回 `credits depleted`，插件无法绕过。根据 X 官方在 2026 年 8 月公布的价格，普通 `Post: Create` 为 **$0.015/次**，正文包含 URL 的 `Post: Create (with URL)` 为 **$0.200/次**，授权后读取账号资料 `User: Read` 为 **$0.010/次**。媒体及其他端点可能产生额外费用，价格可能随时调整，请始终以 [X API Pricing](https://docs.x.com/x-api/getting-started/pricing) 和 [Developer Console](https://console.x.com) 为准。
 >
 > 建议首次只购买少量 credits，关闭自动充值并设置 Spending Limit。普通图片帖正文尽量不要包含 OSS URL；图片已经通过媒体接口上传，无需再次附加链接。
 
@@ -182,7 +197,7 @@ ComfyUI/user/__autopublish/oss.json
 以下仅按普通发帖 `$0.015`，并预留少量媒体端点费用进行粗略估算，不包含汇率和税费：
 
 | 发布数量 | 预计 API 消耗 |
-| ---: | ---: |
+| :--: | :--: |
 | 10 张 | 约 `$0.15～$0.20` |
 | 100 张 | 约 `$1.50～$2.00` |
 | 1,000 张 | 约 `$15～$20` |
@@ -210,7 +225,7 @@ ComfyUI/user/__autopublish/oss.json
 | Organization / Terms / Privacy | 未启用邮箱权限时通常可按控制台要求填写或留空 |
 
 > [!IMPORTANT]
-> Callback URI 必须逐字符一致，包括 `http`、`127.0.0.1`、端口和路径。不要使用旧地址 `http://127.0.0.1:8188/api/autopublish/x/oauth/callback`，它会被 ComfyUI 的跨站安全中间件返回 403。
+> Callback URI 必须逐字符一致，包括 `http`、`127.0.0.1`、端口和路径。
 
 保存后复制 **OAuth 2.0 Client ID**。本插件使用 PKCE 公开客户端流程，不需要 Client Secret，也不要把 API Key、API Secret 或 Bearer Token 填进插件。
 
@@ -321,27 +336,13 @@ Access Token 和 Refresh Token 使用 Windows DPAPI 加密，通常只有当前 
 - 先运行一次工作流，让插件发现图片输出节点。
 - 使用 `Ctrl+F5` 刷新前端扩展。
 
-### ImageCompressor 图片没有显示或找不到文件
-
-插件支持 ComfyUI `input`、`output`、`temp` 目录内的相对和绝对子目录。确认压缩插件最终返回了图片信息，并且文件仍位于上述目录中。
-
-### OSS 上传成功，但复制的 URL 无法打开
+### OSS 上传成功，但复制的 URL 别人无法打开
 
 这通常是 Bucket 为私有读权限。请配置公开读策略、CDN/自定义域名，或在其他系统中生成签名 URL。本插件当前只返回普通 HTTPS 对象 URL。
 
 ### OSS 返回 AccessDenied
 
 检查 RAM 用户是否具有目标 Bucket 和对象路径的 `oss:PutObject` 权限，并确认 Endpoint 与 Bucket 地域一致。
-
-### X 授权回调显示 HTTP 403
-
-确认 X 后台和插件都使用：
-
-```text
-http://127.0.0.1:17863/x/callback
-```
-
-不要使用旧的 ComfyUI `/api/autopublish/x/oauth/callback` 地址。
 
 ### X 授权显示“连接 X API 超时”
 
@@ -357,16 +358,14 @@ OAuth、回调和网络通常已经成功，但 X Developer Project 没有可用
 
 ### X 图片格式或大小错误
 
-确保图片是 JPG、PNG、GIF 或 WEBP，并且不超过 5 MB。可以先通过 ImageCompressor 压缩后再发布。
+确保图片是 JPG、PNG、GIF 或 WEBP，并且不超过 5 MB。
 
 ## 安全建议
 
-- 不要把 `ComfyUI/user/__autopublish/` 提交到 Git。
 - 不要截图或分享 AccessKey Secret、OAuth Token、授权 code。
 - OSS 使用专用 RAM 用户和最小权限策略。
 - X 设置较低的 Spending Limit，谨慎开启自动充值。
 - 不要将没有额外认证保护的 ComfyUI 直接暴露到公网。
-- 分发插件时优先让每位用户填写自己的 Client ID，由各自的 X Project 承担 credits 和合规责任。
 
 ## 外部文档
 
