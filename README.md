@@ -1,6 +1,6 @@
 # ComfyUI AutoPublish
 
-在 ComfyUI 持续生成图片的同时，直接挑选满意的结果并上传到阿里云 OSS，或发布到自己的 X 账号。上传和发帖任务在后台执行，不会阻塞下一次工作流运行。
+在 ComfyUI 持续生成图片的同时，直接挑选满意的结果：复制到自己的本地精选文件夹、上传到阿里云 OSS，或发布到自己的 X 账号。复制、上传和发帖任务都在后台执行，不会阻塞下一次工作流运行。
 
 > [!NOTE]
 > 这是一个 ComfyUI 前端扩展和后端服务，不会向工作流中增加新节点，也不会改变现有节点的执行结果。
@@ -21,13 +21,15 @@
 
 - 托盘可拖拽、收起，位置和节点筛选保存在当前浏览器中。
 
-- 每张图片可独立执行 `上传 OSS`、`发布 X`，无需等待生成任务全部结束。
+- 每张图片可独立执行 `输出本地`、`上传 OSS`、`发布 X`，无需等待生成任务全部结束。
+
+- 本地输出会复制原图并保留文件时间等信息；同名时自动添加 `_1`、`_2`，不会覆盖已有图片。
 
 - OSS 上传成功后生成 HTTPS URL，并提供 `复制 URL`。
 
 - X 发布前可编辑正文，也可以只发布图片；成功后可直接打开帖子。
 
-- OSS 与 X 均使用后台任务和状态轮询，失败时在对应图片卡片显示原因并允许重试。
+- 本地复制、OSS 上传和 X 发布均使用后台任务和状态轮询，失败时在对应图片卡片显示原因并允许重试。
 
 - 只允许读取 ComfyUI `input`、`output`、`temp` 目录内的图片。
 
@@ -69,7 +71,7 @@ ComfyUI/custom_nodes/ComfyUI-AutoPublish
 2. 运行工作流并等待图片生成。
 3. 页面右侧会出现“发布托盘”，新图片会自动加入托盘。
 4. 在“显示节点”中选择最终图片节点；留在“所有图片输出节点”则接收全部结果。
-5. 对满意的图片点击 `上传 OSS` 或 `发布 X`。
+5. 对满意的图片点击 `输出本地`、`上传 OSS` 或 `发布 X`。
 6. 可以继续运行工作流，后台发布不会阻塞生成。
 
 ### 发布托盘操作
@@ -80,9 +82,96 @@ ComfyUI/custom_nodes/ComfyUI-AutoPublish
 | `—` / `+` | 收起或展开托盘 |
 | 齿轮按钮 | 打开 OSS 配置 |
 | `𝕏` | 打开 X 配置和账号状态 |
+| `★` | 打开本地精选目录配置 |
 | 显示节点 | 只显示指定图片输出节点产生的结果 |
 | 清空卡片 | 清空当前页面的卡片，不删除图片文件 |
 | 点击缩略图 | 在新窗口打开 ComfyUI 原图 |
+
+## 输出至本地精选文件夹
+
+这个模式适合先把满意图片集中到一个文件夹，再统一整理、修图或发布。它执行的是**复制**，不会移动或删除 ComfyUI 原始输出。
+
+### 设置精选结果文件夹
+
+1. 点击发布托盘右上角的 `★`。
+2. 在“精选结果文件夹”中填写绝对路径，例如：
+
+   ```text
+   D:\Pictures\ComfyUI-Selected
+   ```
+
+3. 点击 `保存本地目录`。如果目录不存在，插件会尝试自动创建。
+4. 对满意的图片点击 `输出本地`。
+5. 卡片显示“已输出”后，图片已经复制到配置的文件夹中。
+
+### 文件复制规则
+
+- 复制的是当前卡片对应的原始图片文件，不会重新编码或压缩。
+- 使用 Python `copy2` 复制，尽量保留原文件的修改时间等元数据。
+- 如果目标目录已经存在同名文件，插件不会覆盖它，而是依次生成 `文件名_1.png`、`文件名_2.png`。
+- 如果图片本来就在精选目录中，点击输出不会产生重复副本。
+- 源图片仍然只能来自 ComfyUI 的 `input`、`output` 或 `temp` 目录。
+- 当前版本需要直接填写文件夹路径，不提供系统文件夹选择窗口。
+
+本地精选目录配置保存在：
+
+```text
+ComfyUI/user/__autopublish/local.json
+```
+
+该文件只记录文件夹路径，不包含密钥。
+
+## MOSS 图库接入
+
+支持问秋月 MOSS 图库的 AutoPublish v1 约定。更新插件并重启 ComfyUI 后，OSS 和 local 的配置接口均返回 `config.moss_publish_version: 1`。图库仍通过已有的配置、发布和任务查询接口操作，不需要安装或导入托盘前端脚本，也不使用 X 接口。
+
+`POST /autopublish/{oss|local}/publish` 可额外传入 `asset_hash` 和 `request_id`，两者必须同时提供且均为 64 位小写 SHA-256。省略两者时保留发布托盘原有的命名和复制行为。
+
+```json
+{
+  "image": { "filename": "image_00001_.png", "subfolder": "WenQiuYue/session/run", "type": "output" },
+  "asset_hash": "<原图的64位小写SHA-256>",
+  "request_id": "<由调用方计算的64位小写SHA-256>"
+}
+```
+
+- 提交时核验原图内容，后台发布前再次生成并核验文件快照；排队期间原图改变时任务失败，不会发送改变后的内容。
+- 发布目标在提交时固定。同一 `request_id` 绑定操作、目标和内容；排队中或成功的请求返回原任务，绑定冲突返回 HTTP 409，明确失败后可手动重试。
+- OSS 对象名为 `<首次提交展开的日期前缀>/moss/<完整asset_hash>.<扩展名>`；本地文件名为 `MOSS_<完整asset_hash>.<扩展名>`。同名目标内容一致时复用，不一致时报错，不覆盖、不追加序号，源文件保留。
+- 本地通过目标卷上的临时文件和原子硬链接提交完整文件。目标文件系统需要支持硬链接；不支持时任务失败，不会退回可能覆盖目标的复制方式。
+- 提交仍返回 HTTP 202 和 `{ "job": { ... } }`，查询返回 `{ "jobs": [ ... ] }`。任务增加 `request_id`、`asset_hash`，成功时分别返回 OSS 的 `result_url` 或本地的 `result_path`。
+- 任务查询保留最近 100 条记录。MOSS 请求绑定与任务结果存入 `ComfyUI/user/__autopublish/moss_publish.sqlite3`，不包含密钥；重启和内存任务淘汰不会解除绑定。中断任务在重启后标为失败，需要核对目标后手动重试，OSS 仍使用首次提交的日期路径。
+- 同一个 ComfyUI 用户数据目录应只由一个 ComfyUI 进程使用。请保留数据库以保持跨日期重试的目标一致性；数据库丢失后，固定名称仍能核验相同路径，但无法恢复原先展开的日期。
+
+MOSS 的 OSS 发布需要 `oss:PutObject`、`oss:GetObject`（核验已有对象实际内容），以及 Bucket 级别的 `oss:GetBucketVersioning`。与下方托盘的最小上传权限相比，需要另加读取及版本状态查询权限。例如，目标为 `your-bucket-name`：
+
+```json
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:PutObject", "oss:GetObject"],
+      "Resource": ["acs:oss:*:*:your-bucket-name/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetBucketVersioning"],
+      "Resource": ["acs:oss:*:*:your-bucket-name"]
+    }
+  ]
+}
+```
+
+OSS 的 `x-oss-forbid-overwrite` 在开启或暂停版本控制的 Bucket 上无效，因此 MOSS 只对从未启用版本控制的 Bucket 新建对象；已存在且内容相同的对象仍可复用。详见 [PutObject 防覆盖说明](https://www.alibabacloud.com/help/en/oss/developer-reference/putobject)。普通结果 URL 不代表私有 Bucket 的匿名访问授权。
+
+后端离线验收（模拟 OSS，仅在测试临时目录读写，不读取真实发布配置）：
+
+```powershell
+python -B -m unittest discover -s tests -v
+```
+
+测试覆盖并发请求、持久化恢复、目标绑定、日期冻结、文件变化、防覆盖和旧版调用。模拟通过后仍需重启 ComfyUI，再与 MOSS 图库进行真实联调。
 
 ## 阿里云 OSS 设置
 
@@ -321,11 +410,12 @@ Access Token 和 Refresh Token 使用 Windows DPAPI 加密，通常只有当前 
 | --- | --- | --- |
 | OSS 配置 | `ComfyUI/user/__autopublish/oss.json` | AccessKey Secret 本机明文保存 |
 | X 配置 | `ComfyUI/user/__autopublish/x.json` | Token 使用 Windows DPAPI 加密 |
+| 本地精选目录 | `ComfyUI/user/__autopublish/local.json` | 只保存目标文件夹绝对路径 |
 | 托盘位置 | 浏览器 `localStorage` | 每个浏览器独立保存 |
 | 节点筛选 | 浏览器 `localStorage` | 保存节点 ID |
 | 图片卡片 | 当前页面内存 | 刷新页面后清空 |
 
-本插件不会自动删除、移动或修改本地图片。只有明确点击发布按钮时，选中的图片才会发送到 OSS 或 X。
+本插件不会自动删除、移动或修改本地图片。只有明确点击按钮时，选中的图片才会复制到精选目录，或发送到 OSS、X。
 
 ## 常见问题
 
@@ -343,6 +433,13 @@ Access Token 和 Refresh Token 使用 Windows DPAPI 加密，通常只有当前 
 ### OSS 返回 AccessDenied
 
 检查 RAM 用户是否具有目标 Bucket 和对象路径的 `oss:PutObject` 权限，并确认 Endpoint 与 Bucket 地域一致。
+
+### 本地目录保存或复制失败
+
+- 必须填写绝对路径，例如 `D:\Pictures\ComfyUI-Selected`，不能填写相对路径。
+- 确认运行 ComfyUI 的 Windows 用户对目标目录具有创建和写入权限。
+- 如果目标路径已经是一个文件，请改用文件夹路径。
+- 网络磁盘或 NAS 路径需要在 ComfyUI 运行账户中可以正常访问。
 
 ### X 授权显示“连接 X API 超时”
 

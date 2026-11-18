@@ -21,6 +21,7 @@ style.textContent = `
         --ap-oss: #51a8ff;
         --ap-accent: #77d4c7;
         --ap-good: #7fd59a;
+        --ap-local: #e6bd72;
         position: fixed;
         z-index: 10020;
         top: 132px;
@@ -131,6 +132,10 @@ style.textContent = `
     .autopublish-icon-button:hover {
         color: var(--ap-text);
         background: rgba(255, 255, 255, 0.07);
+    }
+
+    .autopublish-icon-button.is-local {
+        color: var(--ap-local);
     }
 
     .autopublish-icon-button:focus-visible,
@@ -499,7 +504,7 @@ style.textContent = `
 
     .autopublish-actions {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 6px;
         margin-top: auto;
     }
@@ -521,6 +526,11 @@ style.textContent = `
     .autopublish-action[data-destination="x"] {
         color: #f3f5f7;
         background: rgba(255, 255, 255, 0.075);
+    }
+
+    .autopublish-action[data-destination="local"] {
+        color: #fff0cf;
+        background: rgba(230, 189, 114, 0.12);
     }
 
     .autopublish-copy {
@@ -625,13 +635,17 @@ app.registerExtension({
         xConfigToggle.type = "button";
         xConfigToggle.title = "配置 X";
         xConfigToggle.setAttribute("aria-label", "配置 X");
+        const localConfigToggle = element("button", "autopublish-icon-button is-local", "★");
+        localConfigToggle.type = "button";
+        localConfigToggle.title = "配置本地精选目录";
+        localConfigToggle.setAttribute("aria-label", "配置本地精选目录");
         const collapse = element("button", "autopublish-icon-button", "—");
         collapse.type = "button";
         collapse.title = "收起发布托盘";
         collapse.setAttribute("aria-label", "收起发布托盘");
 
         heading.append(title, subtitle);
-        header.append(mark, heading, count, configToggle, xConfigToggle, collapse);
+        header.append(mark, heading, count, configToggle, xConfigToggle, localConfigToggle, collapse);
 
         const toolbar = element("div", "autopublish-toolbar");
         const connectionStatus = element("span", "", "正在读取 OSS 配置…");
@@ -714,6 +728,32 @@ app.registerExtension({
         xConfigActions.append(saveXConfig, connectX, disconnectX);
         xConfigPanel.append(xConfigTitle, xConfigGrid, xConfigNote, xConfigActions);
 
+        const localConfigPanel = element("section", "autopublish-config");
+        localConfigPanel.hidden = true;
+        const localConfigTitle = element("div", "autopublish-config-title");
+        localConfigTitle.append(
+            element("span", "", "本地精选目录"),
+            element("span", "autopublish-x-account", "尚未设置"),
+        );
+        const localAccount = localConfigTitle.lastElementChild;
+        const localConfigGrid = element("div", "autopublish-config-grid");
+        const localField = element("label", "autopublish-field is-wide", "精选结果文件夹");
+        const localDirectoryInput = element("input");
+        localDirectoryInput.type = "text";
+        localDirectoryInput.name = "output_directory";
+        localDirectoryInput.placeholder = "例如 D:\\Pictures\\ComfyUI-Selected";
+        localDirectoryInput.autocomplete = "off";
+        localField.appendChild(localDirectoryInput);
+        localConfigGrid.appendChild(localField);
+        const localConfigNote = element(
+            "div",
+            "autopublish-config-note",
+            "点击图片卡片的“输出本地”后，插件会复制原图并保留文件时间等信息。同名时自动添加 _1、_2，不会覆盖已有文件。",
+        );
+        const saveLocalConfig = element("button", "autopublish-save-config", "保存本地目录");
+        saveLocalConfig.type = "button";
+        localConfigPanel.append(localConfigTitle, localConfigGrid, localConfigNote, saveLocalConfig);
+
         const composer = element("section", "autopublish-composer");
         composer.hidden = true;
         const composerHead = element("div", "autopublish-composer-head");
@@ -741,22 +781,26 @@ app.registerExtension({
         const emptyText = element("span", "", "选择一个图片输出节点，托盘只接收它之后产生的图片。");
         empty.append(emptyTitle, emptyText);
         const list = element("div", "autopublish-list");
-        body.append(toolbar, filter, configPanel, xConfigPanel, composer, empty, list);
+        body.append(toolbar, filter, configPanel, xConfigPanel, localConfigPanel, composer, empty, list);
         tray.append(header, body);
         document.body.appendChild(tray);
 
         const cards = new Map();
         const activeJobs = new Map();
         const activeXJobs = new Map();
+        const activeLocalJobs = new Map();
         const observedSources = new Map();
         let pollTimer = null;
         let xPollTimer = null;
+        let localPollTimer = null;
         let xAuthPollTimer = null;
         let configReady = false;
         let xReady = false;
+        let localReady = false;
         let xDefaultText = "";
         let ossStatusText = "正在读取 OSS 配置…";
         let xStatusText = "正在读取 X 配置…";
+        let localStatusText = "正在读取本地目录…";
         let composerTarget = null;
         let ignoreHeaderClick = false;
 
@@ -847,8 +891,8 @@ app.registerExtension({
         };
 
         const renderConnectionStatus = () => {
-            connectionStatus.textContent = `${ossStatusText} · ${xStatusText}`;
-            mark.style.background = (configReady || xReady) ? "var(--ap-good)" : "var(--ap-accent)";
+            connectionStatus.textContent = `${ossStatusText} · ${xStatusText} · ${localStatusText}`;
+            mark.style.background = (configReady || xReady || localReady) ? "var(--ap-good)" : "var(--ap-accent)";
         };
 
         const setConfigStatus = (config, error = "") => {
@@ -868,6 +912,18 @@ app.registerExtension({
             renderConnectionStatus();
         };
 
+        const setLocalConfigStatus = (config, error = "") => {
+            localReady = Boolean(config?.configured);
+            const directory = config?.output_directory || "";
+            localStatusText = error || (localReady ? "本地精选 ✓" : "本地未设置");
+            localAccount.textContent = error || (localReady ? "已设置" : "尚未设置");
+            localAccount.title = directory;
+            localConfigToggle.title = localReady
+                ? `本地精选目录：${directory}`
+                : "配置本地精选目录";
+            renderConnectionStatus();
+        };
+
         const loadConfig = async () => {
             try {
                 const response = await api.fetchApi("/autopublish/oss/config", { cache: "no-store" });
@@ -881,6 +937,21 @@ app.registerExtension({
                 setConfigStatus(config);
             } catch (error) {
                 setConfigStatus(null, `配置读取失败：${error.message}`);
+            }
+        };
+
+        const loadLocalConfig = async () => {
+            try {
+                const response = await api.fetchApi("/autopublish/local/config", { cache: "no-store" });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+                const config = payload.config;
+                localDirectoryInput.value = config.output_directory || "";
+                setLocalConfigStatus(config);
+                return config;
+            } catch (error) {
+                setLocalConfigStatus(null, `本地配置读取失败：${error.message}`);
+                return null;
             }
         };
 
@@ -994,6 +1065,9 @@ app.registerExtension({
         const publish = async (image, card, button) => {
             if (!configReady) {
                 configPanel.hidden = false;
+                xConfigPanel.hidden = true;
+                localConfigPanel.hidden = true;
+                composer.hidden = true;
                 card.querySelector(".autopublish-status").textContent = "请先点击右上角齿轮完成 OSS 配置";
                 window.requestAnimationFrame(() => clampTrayPosition(tray.offsetLeft, tray.offsetTop));
                 return;
@@ -1018,6 +1092,80 @@ app.registerExtension({
                 card.querySelector(".autopublish-status").textContent = `提交失败：${error.message}`;
                 button.disabled = false;
                 button.textContent = "重试 OSS";
+            }
+        };
+
+        const updateLocalJob = (job) => {
+            const tracked = activeLocalJobs.get(job.id);
+            if (!tracked) return;
+            const { card, button } = tracked;
+            card.dataset.state = job.status === "done" ? "done" : (job.status === "failed" ? "idle" : "working");
+            const status = card.querySelector(".autopublish-status");
+            status.textContent = job.message;
+            status.title = job.result_path || "";
+            if (job.status === "done" || job.status === "failed") {
+                button.textContent = job.status === "done" ? "已输出" : "重试本地";
+                button.disabled = job.status === "done";
+                activeLocalJobs.delete(job.id);
+            }
+        };
+
+        const stopLocalPollingIfIdle = () => {
+            if (activeLocalJobs.size === 0 && localPollTimer !== null) {
+                window.clearInterval(localPollTimer);
+                localPollTimer = null;
+            }
+        };
+
+        const pollLocalJobs = async () => {
+            try {
+                const response = await api.fetchApi("/autopublish/local/jobs", { cache: "no-store" });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const payload = await response.json();
+                for (const job of payload.jobs || []) updateLocalJob(job);
+            } catch (error) {
+                for (const { card } of activeLocalJobs.values()) {
+                    card.querySelector(".autopublish-status").textContent = `无法读取本地复制状态：${error.message}`;
+                }
+            } finally {
+                stopLocalPollingIfIdle();
+            }
+        };
+
+        const startLocalPolling = () => {
+            if (localPollTimer === null) localPollTimer = window.setInterval(pollLocalJobs, 450);
+        };
+
+        const publishLocal = async (image, card, button) => {
+            if (!localReady) {
+                localConfigPanel.hidden = false;
+                configPanel.hidden = true;
+                xConfigPanel.hidden = true;
+                composer.hidden = true;
+                card.querySelector(".autopublish-status").textContent = "请先点击右上角 ★ 设置精选结果文件夹";
+                window.requestAnimationFrame(() => clampTrayPosition(tray.offsetLeft, tray.offsetTop));
+                return;
+            }
+            button.disabled = true;
+            button.textContent = "复制中…";
+            card.dataset.state = "working";
+            card.querySelector(".autopublish-status").textContent = "正在交给本地复制队列…";
+            try {
+                const response = await api.fetchApi("/autopublish/local/publish", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image }),
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+                activeLocalJobs.set(payload.job.id, { card, button });
+                updateLocalJob(payload.job);
+                startLocalPolling();
+            } catch (error) {
+                card.dataset.state = "idle";
+                card.querySelector(".autopublish-status").textContent = `本地输出失败：${error.message}`;
+                button.disabled = false;
+                button.textContent = "重试本地";
             }
         };
 
@@ -1090,6 +1238,7 @@ app.registerExtension({
             if (!xReady) {
                 xConfigPanel.hidden = false;
                 configPanel.hidden = true;
+                localConfigPanel.hidden = true;
                 card.querySelector(".autopublish-status").textContent = "请先点击右上角 𝕏 并连接 X 账号";
                 window.requestAnimationFrame(() => clampTrayPosition(tray.offsetLeft, tray.offsetTop));
                 return;
@@ -1102,6 +1251,7 @@ app.registerExtension({
             composer.hidden = false;
             configPanel.hidden = true;
             xConfigPanel.hidden = true;
+            localConfigPanel.hidden = true;
             composerText.focus();
             composer.scrollIntoView({ block: "nearest" });
             window.requestAnimationFrame(() => clampTrayPosition(tray.offsetLeft, tray.offsetTop));
@@ -1188,7 +1338,11 @@ app.registerExtension({
             xButton.type = "button";
             xButton.dataset.destination = "x";
             xButton.addEventListener("click", () => openComposer(image, card, xButton));
-            actions.append(button, xButton, copyButton);
+            const localButton = element("button", "autopublish-action", "输出本地");
+            localButton.type = "button";
+            localButton.dataset.destination = "local";
+            localButton.addEventListener("click", () => publishLocal(image, card, localButton));
+            actions.append(button, xButton, localButton, copyButton);
 
             content.append(filename, source, status, actions);
             card.append(thumb, content);
@@ -1216,6 +1370,7 @@ app.registerExtension({
             configPanel.hidden = !configPanel.hidden;
             if (!configPanel.hidden) {
                 xConfigPanel.hidden = true;
+                localConfigPanel.hidden = true;
                 composer.hidden = true;
                 loadConfig();
             }
@@ -1227,8 +1382,21 @@ app.registerExtension({
             xConfigPanel.hidden = !xConfigPanel.hidden;
             if (!xConfigPanel.hidden) {
                 configPanel.hidden = true;
+                localConfigPanel.hidden = true;
                 composer.hidden = true;
                 loadXConfig();
+            }
+            window.requestAnimationFrame(() => clampTrayPosition(tray.offsetLeft, tray.offsetTop));
+        });
+
+        localConfigToggle.addEventListener("click", (event) => {
+            event.stopPropagation();
+            localConfigPanel.hidden = !localConfigPanel.hidden;
+            if (!localConfigPanel.hidden) {
+                configPanel.hidden = true;
+                xConfigPanel.hidden = true;
+                composer.hidden = true;
+                loadLocalConfig();
             }
             window.requestAnimationFrame(() => clampTrayPosition(tray.offsetLeft, tray.offsetTop));
         });
@@ -1255,6 +1423,29 @@ app.registerExtension({
                 saveConfig.textContent = "重新保存";
             } finally {
                 saveConfig.disabled = false;
+            }
+        });
+
+        saveLocalConfig.addEventListener("click", async () => {
+            saveLocalConfig.disabled = true;
+            saveLocalConfig.textContent = "正在保存…";
+            try {
+                const response = await api.fetchApi("/autopublish/local/config", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ output_directory: localDirectoryInput.value }),
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+                localDirectoryInput.value = payload.config.output_directory || "";
+                setLocalConfigStatus(payload.config);
+                saveLocalConfig.textContent = "目录已保存";
+                window.setTimeout(() => { saveLocalConfig.textContent = "保存本地目录"; }, 1200);
+            } catch (error) {
+                setLocalConfigStatus(null, `本地保存失败：${error.message}`);
+                saveLocalConfig.textContent = "重新保存";
+            } finally {
+                saveLocalConfig.disabled = false;
             }
         });
 
@@ -1382,6 +1573,7 @@ app.registerExtension({
         window.setTimeout(refreshSourceOptions, 0);
         loadConfig();
         loadXConfig();
+        loadLocalConfig();
 
         api.addEventListener("executed", ({ detail }) => {
             const images = detail?.output?.images;
